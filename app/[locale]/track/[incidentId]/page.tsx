@@ -8,7 +8,7 @@ import { useLanguage } from '@/lib/i18n/LanguageProvider';
 import { createClient } from '@/lib/supabase/client';
 import type { Responder } from '@/lib/types';
 import { ArrowLeft, Clock, AlertCircle, Copy, Check, Loader2, CheckCircle2, RotateCcw, QrCode } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+import QRCode from 'react-qr-code';
 
 const MapWithNoSSR = dynamic(() => import('@/components/ResponderMap'), { ssr: false });
 
@@ -298,7 +298,7 @@ export default function TrackPage() {
       {/* ICE Card QR */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 20 }}>
         <div style={{ flexShrink: 0, background: '#fff', padding: 8, borderRadius: 6 }}>
-          <QRCodeSVG
+          <QRCode
             value={`${typeof window !== 'undefined' ? window.location.origin : ''}/ice/${incidentId}`}
             size={80}
             level="M"
