@@ -170,6 +170,10 @@ android {
         jniLibs {
             def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
             useLegacyPackaging enableLegacyPackaging.toBoolean()
+            // react-native-reanimated 4.x re-exports libworklets.so (imported via
+            // prefab from react-native-worklets), so the same library is supplied
+            // by both modules. The two copies are identical — keep one.
+            pickFirsts += ['**/libworklets.so']
         }
     }
     androidResources {
