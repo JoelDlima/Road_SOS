@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "RoadSoS",
+    "slug": "roadsos-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/roadsosLogo.png",
+    "scheme": "roadsos",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/roadsosLogo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050505"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.roadsos.mobile",
+      "infoPlist": {
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "RoadSoS needs your location to send it to emergency contacts and find nearby services.",
+        "NSLocationWhenInUseUsageDescription": "RoadSoS needs your location to send it to emergency contacts.",
+        "NSMotionUsageDescription": "RoadSoS uses motion sensors to detect crashes automatically.",
+        "NSCameraUsageDescription": "RoadSoS uses your camera for live video streaming during emergencies.",
+        "NSMicrophoneUsageDescription": "RoadSoS uses your microphone for audio during live video streaming.",
+        "NSPhotoLibraryUsageDescription": "RoadSoS needs access to your photo library to share incident photos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/roadsosLogo.png",
+        "backgroundColor": "#050505"
+      },
+      "package": "com.roadsos.mobile",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "SEND_SMS",
+        "VIBRATE",
+        "FOREGROUND_SERVICE",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sensors",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "RoadSoS needs your location to send it to emergency contacts and find nearby services."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24,
+            "compileSdkVersion": 35,
+            "buildToolsVersion": "35.0.0",
+            "extraMavenRepos": []
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build APK",
+			"type": "shell",
+			"command": "cd android && gradlew.bat assembleRelease",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build APK with log",
+			"type": "shell",
+			"command": "cd android && gradlew.bat assembleRelease > build_log.txt 2>&1",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build APK with log 2",
+			"type": "shell",
+			"command": "cd android ; .\\gradlew.bat assembleRelease > ..\\build_log.txt 2>&1",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Assemble Release",
+			"type": "shell",
+			"command": "cd android ; .\\gradlew.bat assembleRelease",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Assemble Release Clean",
+			"type": "shell",
+			"command": "Remove-Item -Recurse -Force 'C:\\Users\\moses\\AppData\\Local\\Temp\\metro-cache\\' -ErrorAction SilentlyContinue; cd android; .\\gradlew.bat assembleRelease",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build APK mapped",
+			"type": "shell",
+			"command": "subst Z: . ; X: ; Set-Location Z:\\android ; .\\gradlew.bat clean ; .\\gradlew.bat assembleRelease ; Set-Location D:\\ ; subst Z: /D",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Enable Long Paths",
+			"type": "shell",
+			"command": "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command `\"Set-ItemProperty -Path HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem -Name LongPathsEnabled -Value 1`\"' -Verb RunAs",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Assemble Release 2",
+			"type": "shell",
+			"command": "cd android; .\\gradlew.bat assembleRelease",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Assemble Release 3",
+			"type": "shell",
+			"command": "cd android; .\\gradlew.bat assembleRelease",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Upgrade Ninja",
+			"type": "shell",
+			"command": "Invoke-WebRequest -Uri \"https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-win.zip\" -OutFile \"ninja-win.zip\"; Expand-Archive -Path \"ninja-win.zip\" -DestinationPath \"ninja-update\" -Force; Copy-Item \"ninja-update\\ninja.exe\" \"C:\\Users\\moses\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe\" -Force; Remove-Item -Recurse -Force \"ninja-update\"; Remove-Item \"ninja-win.zip\"",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Assemble Release 4",
+			"type": "shell",
+			"command": "cd android; .\\gradlew.bat assembleRelease",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Check Ninja Version",
+			"type": "shell",
+			"command": "C:\\Users\\moses\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe --version",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Assemble Release 5",
+			"type": "shell",
+			"command": "cd android; .\\gradlew.bat assembleRelease",
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}

@@ -1,0 +1,431 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FlatList, Image, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+import { ArrowLeftRight, Bot, Car, HeartPulse, Loader, Stethoscope, Wifi, WifiOff, Wrench } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ChatInput from '../../components/ChatInput';
+import { ChatBubble } from '../../components/ChatBubble';
+import { colorForTone, Header, IconBadge, Panel, Screen, StatusPill } from '../../components/AppKit';
+import { Colors, Spacing, Typography } from '../../constants/theme';
+import { TAB_BAR_TOTAL } from '../../constants/layout';
+import { useLocation } from '../../hooks/useLocation';
+import { useNearbyServices } from '../../hooks/useNearbyServices';
+import { fetchWithTimeout } from '../../lib/fetch-utils';
+import { buildContextBlock, streamGroqResponse, UserContext } from '../../lib/groq';
+import { getUserProfile } from '../../lib/offline-cache';
+import { getModelState, getSelectedVariant, initLocalLLM, isLLMReady, MODELS, stopLocalLLMCompletion, streamLocalLLM } from '../../lib/local-llm';
+import { uid } from '../../lib/utils';
+import { ChatMessage } from '../../types';
+
+type ResolvedTier = 'cloud' | 'local' | 'offline';
+
+const QUICK_ACTIONS = [
+  { label: 'Crash', prompt: 'I was in a road accident. What should I do first?', Icon: Car, tone: 'red' as const },
+  { label: 'Bleeding', prompt: 'How do I stop severe bleeding after an accident?', Icon: HeartPulse, tone: 'red' as const },
+  { label: 'CPR', prompt: 'Someone is unconscious and not breathing. Give me CPR steps.', Icon: Stethoscope, tone: 'blue' as const },
+  { label: 'Breakdown', prompt: 'My vehicle broke down on the highway. What should I do?', Icon: Wrench, tone: 'amber' as const },
+];
+
+/**
+ * Lightweight reachability probe. Uses a HEAD request to a known-good endpoint
+ * with a tight timeout so the UI flips between Online and Offline within a few
+ * seconds of the network changing.
+ */
+function useOnlineStatus() {
+  const [online, setOnline] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    async function check() {
+      try {
+        await fetchWithTimeout('https://clients3.google.com/generate_204', { method: 'HEAD' }, 4000);
+        if (active) setOnline(true);
+      } catch {
+        if (active) setOnline(false);
+      }
+    }
+    check();
+    const timer = setInterval(check, 20000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  return online;
+}
+
+export default function ChatScreen() {
+  const insets = useSafeAreaInsets();
+  const listRef = useRef<FlatList<ChatMessage>>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const streamAborted = useRef(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [localReady, setLocalReady] = useState(false);
+  const [localModelName, setLocalModelName] = useState('Llama 3.2');
+  const [forceLocal, setForceLocal] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [initElapsed, setInitElapsed] = useState(0);
+  const initStartRef = useRef<number | null>(null);
+  const [userCtx, setUserCtx] = useState<UserContext | null>(null);
+  const online = useOnlineStatus();
+  const { location } = useLocation();
+  const { services } = useNearbyServices(location?.lat ?? null, location?.lng ?? null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // Hydrate user context and warm the on-device model if the user has it ready.
+  useEffect(() => {
+    let cancelled = false;
+    async function hydrate() {
+      const profile = await getUserProfile();
+      if (!cancelled && profile) {
+        setUserCtx({
+          name: profile.name,
+          bloodGroup: profile.bloodGroup,
+          language: profile.language,
+          medicalInfo: profile.medicalInfo,
+        });
+      }
+      try {
+        const state = await getModelState();
+        const selected = await getSelectedVariant();
+        if (!cancelled && state === 'ready' && selected) {
+          if (!cancelled) setLocalModelName(MODELS[selected]?.name ?? 'Llama 3.2');
+          let ready = isLLMReady();
+          if (!ready) {
+            if (!cancelled) {
+              setIsInitializing(true);
+              initStartRef.current = Date.now();
+            }
+            ready = await initLocalLLM(selected);
+            if (!cancelled) setIsInitializing(false);
+          }
+          if (!cancelled) setLocalReady(ready);
+        }
+      } catch {
+        if (!cancelled) {
+          setIsInitializing(false);
+          setLocalReady(false);
+        }
+      }
+    }
+    hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const context = useMemo<UserContext | undefined>(() => {
+    const nearbyServices = services.slice(0, 5).map((service) => ({
+      name: service.name,
+      service_type: service.service_type,
+      phone: service.primary_phone,
+      distance_km: service.distance_km,
+    }));
+    if (!userCtx && !location && nearbyServices.length === 0) return undefined;
+    return {
+      ...userCtx,
+      location: location ? { lat: location.lat, lng: location.lng, address: location.address } : undefined,
+      nearbyServices,
+    };
+  }, [location, services, userCtx]);
+
+  // Tick elapsed seconds while the model is loading from disk.
+  useEffect(() => {
+    if (!isInitializing) {
+      setInitElapsed(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      if (initStartRef.current) {
+        setInitElapsed(Math.floor((Date.now() - initStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isInitializing]);
+
+  // Reset forced-local when the connection drops — no choice to offer offline.
+  useEffect(() => {
+    if (!online) setForceLocal(false);
+  }, [online]);
+
+  /**
+   * Pick the best available inference tier. When the user has forced local mode
+   * and the model is ready, use it even when online. Otherwise: Online → Groq
+   * cloud, on-device model ready → local, else → first-aid fallback.
+   */
+  const pickTier = useCallback((): ResolvedTier => {
+    if (forceLocal && localReady && isLLMReady()) return 'local';
+    if (forceLocal) return 'offline';
+    if (online) return 'cloud';
+    if (localReady && isLLMReady()) return 'local';
+    return 'offline';
+  }, [forceLocal, localReady, online]);
+
+  function stopStreaming() {
+    streamAborted.current = true;
+    void stopLocalLLMCompletion();
+    setIsStreaming(false);
+    setMessages((current) => current.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)));
+  }
+
+  const sendMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || isStreaming) return;
+      streamAborted.current = false;
+
+      const userMessage: ChatMessage = { id: uid(), role: 'user', content: trimmed, timestamp: Date.now() };
+      const assistantId = uid();
+      const assistantMessage: ChatMessage = { id: assistantId, role: 'assistant', content: '', timestamp: Date.now(), isStreaming: true };
+      const history = [...messagesRef.current, userMessage];
+
+      setMessages((current) => [...current, userMessage, assistantMessage]);
+      setInput('');
+      setIsStreaming(true);
+
+      function update(content: string, streaming = true) {
+        setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, content, isStreaming: streaming } : message)));
+      }
+
+      async function runTier(tier: ResolvedTier): Promise<{ ok: boolean; output: string; reason?: string }> {
+        let output = '';
+        try {
+          if (tier === 'local') {
+            if (!isLLMReady()) return { ok: false, output, reason: 'on-device model not loaded' };
+            const stream = context ? streamLocalLLM(history, { contextBlock: buildContextBlock(context) }) : streamLocalLLM(history);
+            // 90-second watchdog — aborts the completion if prefill takes too long.
+            // stopLocalLLMCompletion() signals llama.rn to stop, which fires the
+            // .finally() handler, which sends the null sentinel, which ends the
+            // for-await loop cleanly without leaving _ctx in a broken state.
+            const watchdog = setTimeout(() => void stopLocalLLMCompletion(), 90_000);
+            try {
+              for await (const chunk of stream) {
+                if (streamAborted.current) break;
+                output += chunk;
+                update(output);
+              }
+            } finally {
+              clearTimeout(watchdog);
+            }
+            return output ? { ok: true, output } : { ok: false, output, reason: 'on-device model timed out or returned no text' };
+          }
+
+          if (tier === 'cloud') {
+            const stream = streamGroqResponse(history, context);
+            for await (const chunk of stream) {
+              if (streamAborted.current) break;
+              output += chunk;
+              update(output);
+            }
+            return output ? { ok: true, output } : { ok: false, output, reason: 'cloud returned no text' };
+          }
+
+          // 'offline' tier — intentionally minimal. We do NOT auto-paste the
+          // long canned first-aid list when an AI tier failed; that confuses
+          // the user (their actual question gets ignored) and is exactly what
+          // the team flagged as a problem. A short honest message + the
+          // emergency numbers is more useful in real distress.
+          return {
+            ok: true,
+            output:
+              `I can't reach the assistant right now. Please call 112 immediately, ` +
+              `then describe what happened so I can help when I'm back.\n\n` +
+              `If you have time, tap the Profile tab and download the on-device ` +
+              `Llama 3.2 model — it works fully offline next time.`,
+          };
+        } catch (error) {
+          return { ok: false, output, reason: error instanceof Error ? error.message : 'unknown error' };
+        }
+      }
+
+      // Auto-ladder: try the picked tier first, then degrade.
+      const primary = pickTier();
+      const ladder: ResolvedTier[] =
+        primary === 'cloud'
+          ? ['cloud', localReady && isLLMReady() ? 'local' : 'offline', 'offline']
+          : primary === 'local'
+            ? ['local', 'offline']
+            : ['offline'];
+
+      // Dedupe consecutive duplicates without losing order.
+      const seen = new Set<ResolvedTier>();
+      const dedupedLadder = ladder.filter((tier) => {
+        if (seen.has(tier)) return false;
+        seen.add(tier);
+        return true;
+      });
+
+      let final = '';
+      let used: ResolvedTier = primary;
+      const reasons: string[] = [];
+
+      for (let i = 0; i < dedupedLadder.length; i++) {
+        if (streamAborted.current) break;
+        const tier = dedupedLadder[i]!;
+        if (i > 0) update('');
+        const result = await runTier(tier);
+        if (result.ok) {
+          final = result.output;
+          used = tier;
+          break;
+        }
+        if (result.reason) reasons.push(`${tier}: ${result.reason}`);
+      }
+
+      if (streamAborted.current) {
+        setIsStreaming(false);
+        return;
+      }
+
+      // We always end with at least the offline tier's short message, so this
+      // is more of a defensive rope. No more pasting OFFLINE_FIRST_AID.
+      if (!final) {
+        final = `I can't reach the assistant right now. Please call 112 immediately.`;
+      }
+      // Only annotate when we silently degraded to local — gives the user a
+      // hint that the answer is from the on-device model and might be terser
+      // than the cloud version.
+      if (used === 'local' && primary === 'cloud') {
+        final = `_(cloud unreachable — answering with ${localModelName})_\n\n${final}`;
+      }
+      update(final, false);
+      setIsStreaming(false);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+    },
+    [context, isStreaming, localReady, pickTier],
+  );
+
+  const tier = pickTier();
+  const shortModelName = localModelName.split('(')[0].trim();
+  const tierLabel = tier === 'cloud' ? 'Online · Llama 3.3' : tier === 'local' ? `Offline · ${shortModelName}` : 'Offline · First aid';
+  const tierTone: 'green' | 'indigo' | 'amber' = tier === 'cloud' ? 'green' : tier === 'local' ? 'indigo' : 'amber';
+
+  // Toggle is available only when both online and a local model are ready.
+  const canToggle = online && localReady && isLLMReady();
+  const toggleColor = colorForTone(forceLocal ? 'indigo' : 'green');
+  const ToggleIcon = forceLocal ? WifiOff : Wifi;
+  const toggleLabel = forceLocal ? shortModelName : 'Online';
+
+  // Loading indicator color
+  const initColor = colorForTone('amber');
+  const initTookTooLong = initElapsed >= 60;
+
+  return (
+    <Screen style={{ paddingTop: insets.top }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Header
+          title="Assistant"
+          subtitle={
+            isInitializing
+              ? `Loading ${shortModelName}…`
+              : tier === 'cloud' ? 'Cloud-powered guidance' : tier === 'local' ? `${localModelName} active` : 'Offline first-aid playbook'
+          }
+          right={
+            isInitializing ? (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 999,
+                  backgroundColor: `${initColor}1A`,
+                }}
+              >
+                <Loader size={12} color={initColor} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: initColor }}>
+                  {initTookTooLong ? `Slow… ${initElapsed}s` : `Loading ${initElapsed}s`}
+                </Text>
+              </View>
+            ) : canToggle ? (
+              <Pressable
+                onPress={() => setForceLocal((prev) => !prev)}
+                accessibilityRole="switch"
+                accessibilityLabel={forceLocal ? 'Switch to online cloud AI' : `Switch to offline ${shortModelName}`}
+                accessibilityState={{ checked: forceLocal }}
+                hitSlop={8}
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 999,
+                  backgroundColor: `${toggleColor}1A`,
+                  opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <ToggleIcon size={12} color={toggleColor} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: toggleColor }}>{toggleLabel}</Text>
+                <ArrowLeftRight size={10} color={toggleColor} strokeWidth={2.5} />
+              </Pressable>
+            ) : (
+              <StatusPill label={tierLabel} tone={tierTone} />
+            )
+          }
+        />
+
+        <FlatList
+          ref={listRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <ChatBubble message={item} />}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: Spacing.md }}
+          onContentSizeChange={() => messages.length > 0 && listRef.current?.scrollToEnd({ animated: true })}
+          ListEmptyComponent={
+            <View style={{ flex: 1, padding: Spacing.lg, gap: Spacing.md }}>
+              <Panel tone="blue" style={{ alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xl }}>
+                <Image
+                  source={require('../../assets/roadsosLogo.png')}
+                  style={{ width: 78, height: 78, borderRadius: 16, marginBottom: Spacing.xs }}
+                  resizeMode="contain"
+                />
+                <View style={{ flexDirection: 'row', gap: Spacing.xs, alignItems: 'center' }}>
+                  <IconBadge Icon={online ? Bot : WifiOff} tone={online ? 'blue' : 'amber'} size={32} />
+                  <Text style={{ color: Colors.textPrimary, ...Typography.h2 }}>What happened?</Text>
+                </View>
+                <Text style={{ color: Colors.textMuted, ...Typography.bodySmall, textAlign: 'center' }}>
+                  {`Ask for immediate steps. Online uses cloud AI — offline uses ${localReady ? localModelName : 'built-in first-aid answers'}.`}
+                </Text>
+              </Panel>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+                {QUICK_ACTIONS.map((item) => (
+                  <Pressable
+                    key={item.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.label}
+                    onPress={() => sendMessage(item.prompt)}
+                    style={({ pressed }) => ({
+                      width: '48%',
+                      backgroundColor: Colors.surface,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: Colors.border,
+                      padding: Spacing.md,
+                      gap: Spacing.sm,
+                      opacity: pressed ? 0.78 : 1,
+                    })}
+                  >
+                    <IconBadge Icon={item.Icon} tone={item.tone} />
+                    <Text style={{ color: Colors.textPrimary, ...Typography.bodySmall, fontWeight: '800' }}>{item.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          }
+        />
+
+        <ChatInput input={input} setInput={setInput} isStreaming={isStreaming} onSend={sendMessage} onStop={stopStreaming} />
+        <View style={{ height: TAB_BAR_TOTAL + insets.bottom + Spacing.sm }} />
+      </KeyboardAvoidingView>
+    </Screen>
+  );
+}
