@@ -6,36 +6,6 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import type { Responder, Incident } from '@/lib/types';
 
-// Fix default icon paths
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-});
-
-const responderIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="25" height="41">' +
-    '<path fill="#5E5CE6" d="M12.5 0C5.6 0 0 5.6 0 12.5C0 20.4 12.5 41 12.5 41S25 20.4 25 12.5C25 5.6 19.4 0 12.5 0z"/>' +
-    '<circle fill="#fff" cx="12.5" cy="12.5" r="6"/>' +
-    '</svg>'
-  ),
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-});
-
-const incidentIcon = L.divIcon({
-  className: '',
-  html: `<div style="width:12px;height:12px;background:#FF3B30;border:1.5px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(255,59,48,0.25);"></div>`,
-  iconSize: [12, 12], iconAnchor: [6, 6], popupAnchor: [0, -10],
-});
-
-const userIcon = L.divIcon({
-  className: '',
-  html: `<div style="width:14px;height:14px;background:#0A84FF;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 5px rgba(10,132,255,0.25);"></div>`,
-  iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10],
-});
-
 /* Watches center prop and flies the map there — must be inside MapContainer */
 function FlyToCenter({ center }: { center?: [number, number] }) {
   const map = useMap();
@@ -58,10 +28,11 @@ function ResizeHandler() {
     const t2 = setTimeout(() => map.invalidateSize(true), 500);
     const ro = new ResizeObserver(() => map.invalidateSize(true));
     ro.observe(map.getContainer());
-    window.addEventListener('resize', () => map.invalidateSize(true));
+    const onResize = () => map.invalidateSize(true);
+    window.addEventListener('resize', onResize);
     return () => {
       clearTimeout(t1); clearTimeout(t2); ro.disconnect();
-      window.removeEventListener('resize', () => map.invalidateSize(true));
+      window.removeEventListener('resize', onResize);
     };
   }, [map]);
   return null;
@@ -71,16 +42,14 @@ function ResizeHandler() {
 function HeatLayer({ points }: { points: [number, number][] }) {
   const map = useMap();
   const layerRef = useRef<L.Layer | null>(null);
-
   useEffect(() => {
     if (!points.length) return;
     let cancelled = false;
-    import('leaflet.heat').then(heatLayer => {
+    import('leaflet.heat').then(mod => {
       if (cancelled) return;
       if (layerRef.current) map.removeLayer(layerRef.current);
-      layerRef.current = (heatLayer as any).default
-        ? (heatLayer as any).default(points, { radius: 25, blur: 20, maxZoom: 17, gradient: { 0.2: '#0A84FF', 0.5: '#FF9F0A', 1.0: '#FF3B30' } })
-        : (heatLayer as any)(points, { radius: 25, blur: 20, maxZoom: 17, gradient: { 0.2: '#0A84FF', 0.5: '#FF9F0A', 1.0: '#FF3B30' } });
+      const fn = (mod as any).default ?? (mod as any);
+      layerRef.current = fn(points, { radius: 25, blur: 20, maxZoom: 17, gradient: { 0.2: '#0A84FF', 0.5: '#FF9F0A', 1.0: '#FF3B30' } });
       layerRef.current!.addTo(map);
     });
     return () => {
@@ -88,7 +57,6 @@ function HeatLayer({ points }: { points: [number, number][] }) {
       if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
     };
   }, [points, map]);
-
   return null;
 }
 
@@ -114,9 +82,7 @@ export default function ResponderMap({
 
   useEffect(() => {
     setReady(true);
-    // Read initial theme
     setIsDark(document.documentElement.getAttribute('data-theme') !== 'light');
-    // Watch for theme changes
     const observer = new MutationObserver(() => {
       setIsDark(document.documentElement.getAttribute('data-theme') !== 'light');
     });
@@ -128,12 +94,35 @@ export default function ResponderMap({
     return (
       <div style={{ width: '100%', height: '100%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-          <div style={{ width: 24, height: 24, border: '2px solid var(--border)', borderTopColor: 'var(--blue)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
+          <div style={{ width: 24, height: 24, border: '2px solid var(--border)', borderTopColor: '#0A84FF', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
           <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>Loading map…</p>
         </div>
       </div>
     );
   }
+
+  // Icons created here — AFTER ready=true, guaranteed client-side only
+  const incidentIcon = L.divIcon({
+    className: '',
+    html: '<div style="width:12px;height:12px;background:#FF3B30;border:1.5px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(255,59,48,0.25);"></div>',
+    iconSize: [12, 12], iconAnchor: [6, 6], popupAnchor: [0, -10],
+  });
+
+  const userIcon = L.divIcon({
+    className: '',
+    html: '<div style="width:14px;height:14px;background:#0A84FF;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 5px rgba(10,132,255,0.25);"></div>',
+    iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10],
+  });
+
+  const responderIcon = new L.Icon({
+    iconUrl: 'data:image/svg+xml,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="25" height="41">' +
+      '<path fill="#5E5CE6" d="M12.5 0C5.6 0 0 5.6 0 12.5C0 20.4 12.5 41 12.5 41S25 20.4 25 12.5C25 5.6 19.4 0 12.5 0z"/>' +
+      '<circle fill="#fff" cx="12.5" cy="12.5" r="6"/>' +
+      '</svg>'
+    ),
+    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
+  });
 
   const tileUrl = isDark
     ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
@@ -177,7 +166,7 @@ export default function ResponderMap({
           <Marker position={userLocation} icon={userIcon}>
             <Popup>
               <div style={{ fontFamily: 'inherit', minWidth: 130 }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--blue)', marginBottom: 3 }}>YOUR LOCATION</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#0A84FF', marginBottom: 3 }}>YOUR LOCATION</div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{userLocation[0].toFixed(5)}, {userLocation[1].toFixed(5)}</div>
               </div>
             </Popup>
@@ -188,7 +177,7 @@ export default function ResponderMap({
           <Marker key={inc.id} position={[inc.location!.lat, inc.location!.lng]} icon={incidentIcon}>
             <Popup>
               <div style={{ minWidth: 160, fontFamily: 'inherit' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--red)', marginBottom: 4 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#FF3B30', marginBottom: 4 }}>
                   {inc.id.slice(0, 8).toUpperCase()}
                 </div>
                 {inc.user_name && <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 2 }}>{inc.user_name}</div>}
@@ -196,7 +185,7 @@ export default function ResponderMap({
                   {new Date(inc.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                   {inc.location && <span style={{ marginLeft: 6 }}>{inc.location.lat.toFixed(4)}, {inc.location.lng.toFixed(4)}</span>}
                 </div>
-                <a href={`/en/track/${inc.id}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--blue)' }}>View →</a>
+                <a href={`/en/track/${inc.id}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#0A84FF' }}>View →</a>
               </div>
             </Popup>
           </Marker>

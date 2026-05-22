@@ -91,30 +91,34 @@ export default function AnalyticsPage() {
             {dailyData.length === 0 ? (
               <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-faint)', textAlign: 'center', padding: '40px 0' }}>No data</p>
             ) : (
-              <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={dailyData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="date" tick={axisStyle} interval="preserveStartEnd" />
-                  <YAxis tick={axisStyle} allowDecimals={false} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Line type="monotone" dataKey="count" name="Incidents" stroke="var(--red)" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+              <div style={{ width: '100%', height: 180 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={dailyData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="date" tick={axisStyle} interval="preserveStartEnd" />
+                    <YAxis tick={axisStyle} allowDecimals={false} />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Line type="monotone" dataKey="count" name="Incidents" stroke="#FF3B30" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             )}
           </div>
 
           {/* Hourly */}
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '20px 20px 12px' }}>
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 16 }}>Incidents by Hour of Day</p>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={hourlyData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="hour" tick={axisStyle} interval={3} />
-                <YAxis tick={axisStyle} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="count" name="Incidents" fill="var(--blue)" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div style={{ width: '100%', height: 180 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={hourlyData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="hour" tick={axisStyle} interval={3} />
+                  <YAxis tick={axisStyle} allowDecimals={false} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="count" name="Incidents" fill="#0A84FF" radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
 
