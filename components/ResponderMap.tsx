@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import type { Responder } from '@/lib/types';
+import type { Responder, Incident } from '@/lib/types';
 
-// Fix default marker icon paths (CDN fallback)
+// Fix default icon paths
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
@@ -13,7 +14,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
-// Custom responder icon
 const responderIcon = new L.Icon({
   iconUrl: 'data:image/svg+xml,' + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="25" height="41">' +
@@ -21,200 +21,197 @@ const responderIcon = new L.Icon({
     '<circle fill="#fff" cx="12.5" cy="12.5" r="6"/>' +
     '</svg>'
   ),
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
 });
 
-/**
- * ResizeMap — ensures Leaflet recalculates dimensions after mount,
- * container resize, and window resize events.
- */
-function ResizeMap() {
+const incidentIcon = L.divIcon({
+  className: '',
+  html: `<div style="width:12px;height:12px;background:#FF3B30;border:1.5px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(255,59,48,0.25);"></div>`,
+  iconSize: [12, 12], iconAnchor: [6, 6], popupAnchor: [0, -10],
+});
+
+const userIcon = L.divIcon({
+  className: '',
+  html: `<div style="width:14px;height:14px;background:#0A84FF;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 5px rgba(10,132,255,0.25);"></div>`,
+  iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10],
+});
+
+/* Watches center prop and flies the map there — must be inside MapContainer */
+function FlyToCenter({ center }: { center?: [number, number] }) {
   const map = useMap();
-
+  const prev = useRef('');
   useEffect(() => {
-    // Staggered invalidateSize calls to handle delayed layout/hydration
-    const t1 = setTimeout(() => map.invalidateSize(true), 100);
-    const t2 = setTimeout(() => map.invalidateSize(true), 300);
-    const t3 = setTimeout(() => map.invalidateSize(true), 600);
+    if (!center) return;
+    const key = `${center[0].toFixed(4)},${center[1].toFixed(4)}`;
+    if (key === prev.current) return;
+    prev.current = key;
+    map.flyTo(center, 13, { duration: 1.5 });
+  }, [center, map]);
+  return null;
+}
 
-    // Observe container dimension changes (sidebar toggle, tab switch, etc.)
-    const container = map.getContainer();
+/* Handles invalidateSize on container resize */
+function ResizeHandler() {
+  const map = useMap();
+  useEffect(() => {
+    const t1 = setTimeout(() => map.invalidateSize(true), 150);
+    const t2 = setTimeout(() => map.invalidateSize(true), 500);
     const ro = new ResizeObserver(() => map.invalidateSize(true));
-    ro.observe(container);
-
-    // Window resize
-    const onResize = () => map.invalidateSize(true);
-    window.addEventListener('resize', onResize);
-
+    ro.observe(map.getContainer());
+    window.addEventListener('resize', () => map.invalidateSize(true));
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      ro.disconnect();
-      window.removeEventListener('resize', onResize);
+      clearTimeout(t1); clearTimeout(t2); ro.disconnect();
+      window.removeEventListener('resize', () => map.invalidateSize(true));
     };
   }, [map]);
+  return null;
+}
+
+/* Heatmap layer — dynamically imports leaflet.heat to avoid SSR issues */
+function HeatLayer({ points }: { points: [number, number][] }) {
+  const map = useMap();
+  const layerRef = useRef<L.Layer | null>(null);
+
+  useEffect(() => {
+    if (!points.length) return;
+    let cancelled = false;
+    import('leaflet.heat').then(heatLayer => {
+      if (cancelled) return;
+      if (layerRef.current) map.removeLayer(layerRef.current);
+      layerRef.current = (heatLayer as any).default
+        ? (heatLayer as any).default(points, { radius: 25, blur: 20, maxZoom: 17, gradient: { 0.2: '#0A84FF', 0.5: '#FF9F0A', 1.0: '#FF3B30' } })
+        : (heatLayer as any)(points, { radius: 25, blur: 20, maxZoom: 17, gradient: { 0.2: '#0A84FF', 0.5: '#FF9F0A', 1.0: '#FF3B30' } });
+      layerRef.current!.addTo(map);
+    });
+    return () => {
+      cancelled = true;
+      if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
+    };
+  }, [points, map]);
 
   return null;
 }
 
-/**
- * MapMarkers — renders responder markers with popups.
- */
-function MapMarkers({ responders }: { responders: Responder[] }) {
-  return (
-    <>
-      {responders.map((r) => (
-        <Marker key={r.id} position={[r.lat, r.lng]} icon={responderIcon}>
-          <Popup>
-            <div style={{ minWidth: 120 }}>
-              <strong style={{ fontSize: 14, fontWeight: 700, color: '#F2F2F7' }}>{r.name}</strong>
-              <p style={{ fontSize: 12, color: '#8E8E93', marginTop: 4, textTransform: 'capitalize' }}>
-                {r.type} responder
-              </p>
-            </div>
-          </Popup>
-        </Marker>
-      ))}
-    </>
-  );
-}
-
-/**
- * MapContent — inner map children that have access to the map instance.
- */
-function MapContent({ responders, center }: { responders: Responder[]; center?: [number, number] }) {
-  const map = useMap();
-
-  // Center the map when a specific incident location is provided
-  useEffect(() => {
-    if (center) {
-      map.setView(center, 13, { animate: false });
-    }
-  }, [map, center]);
-
-  return (
-    <>
-      <ResizeMap />
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        maxZoom={19}
-        crossOrigin="anonymous"
-        updateWhenIdle={false}
-        updateWhenZooming={false}
-        keepBuffer={4}
-      />
-      <MapMarkers responders={responders} />
-    </>
-  );
-}
-
-/**
- * ResponderMap — production-grade Leaflet map component.
- *
- * Key design decisions:
- * - Wrapper uses explicit height; MapContainer fills it with absolute positioning
- * - No CSS transforms on wrapper or parents (prevents GPU compositing bugs)
- * - isolate creates a new stacking context, preventing z-index bleed
- * - preferCanvas=false uses DOM markers (needed for custom icon popups)
- * - fadeAnimation=false prevents tile flicker during zoom
- */
-export default function ResponderMap({ responders, center }: { responders: Responder[]; center?: [number, number] }) {
-  const [mounted, setMounted] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
+export default function ResponderMap({
+  responders,
+  incidents = [],
+  center,
+  userLocation,
+  showMarkers = true,
+  heatPoints = [],
+  showHeat = false,
+}: {
+  responders: Responder[];
+  incidents?: Incident[];
+  center?: [number, number];
+  userLocation?: [number, number];
+  showMarkers?: boolean;
+  heatPoints?: [number, number][];
+  showHeat?: boolean;
+}) {
+  const [ready, setReady] = useState(false);
+  const [isDark, setIsDark] = useState(true);
 
   useEffect(() => {
-    setMounted(true);
+    setReady(true);
+    // Read initial theme
+    setIsDark(document.documentElement.getAttribute('data-theme') !== 'light');
+    // Watch for theme changes
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.getAttribute('data-theme') !== 'light');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
   }, []);
 
-  // External ResizeObserver on wrapper for layout changes before map mounts
-  useEffect(() => {
-    if (!mounted || !wrapperRef.current) return;
-    const el = wrapperRef.current;
-    const ro = new ResizeObserver(() => {
-      const leafletEl = el.querySelector('.leaflet-container') as any;
-      leafletEl?._leaflet_map?.invalidateSize(true);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [mounted]);
-
-  // SSR guard
-  if (!mounted) {
+  if (!ready) {
     return (
-      <div
-        ref={wrapperRef}
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: '100%',
-          minHeight: 400,
-          minWidth: 0,
-          overflow: 'hidden',
-          background: '#0b1220',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#71717A' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                border: '3px solid rgba(255,255,255,0.06)',
-                borderTopColor: '#0A84FF',
-                borderRadius: '50%',
-                animation: 'spin 0.8s linear infinite',
-                margin: '0 auto 12px',
-              }}
-            />
-            <p style={{ fontSize: 13, fontWeight: 500 }}>Loading map...</p>
-          </div>
+      <div style={{ width: '100%', height: '100%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+          <div style={{ width: 24, height: 24, border: '2px solid var(--border)', borderTopColor: 'var(--blue)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
+          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>Loading map…</p>
         </div>
       </div>
     );
   }
 
-  const defaultCenter: [number, number] = center || [20.5937, 78.9629];
-  const defaultZoom = center ? 13 : 5;
+  const tileUrl = isDark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+
+  const incidentWithLoc = incidents.find(i => i.location);
+  const initialCenter: [number, number] =
+    center ?? (incidentWithLoc?.location
+      ? [incidentWithLoc.location.lat, incidentWithLoc.location.lng]
+      : [20.5937, 78.9629]);
+  const initialZoom = center ? 13 : incidentWithLoc ? 11 : 5;
 
   return (
-    <div
-      ref={wrapperRef}
-      style={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        minHeight: 400,
-        minWidth: 0,
-        overflow: 'hidden',
-        isolation: 'isolate',
-      }}
-    >
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 400, overflow: 'hidden', isolation: 'isolate' }}>
       <MapContainer
-        center={defaultCenter}
-        zoom={defaultZoom}
-        style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
-        zoomSnap={1}
-        zoomDelta={1}
-        wheelPxPerZoomLevel={120}
-        dragging={true}
-        scrollWheelZoom={true}
-        doubleClickZoom={true}
-        boxZoom={false}
-        keyboard={true}
-        touchZoom={true}
-        zoomAnimation={true}
-        fadeAnimation={false}
-        markerZoomAnimation={false}
-        preferCanvas={false}
-        zoomControl={true}
-        attributionControl={true}
+        center={initialCenter}
+        zoom={initialZoom}
+        style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
+        zoomSnap={1} zoomDelta={1}
+        dragging scrollWheelZoom doubleClickZoom
+        boxZoom={false} keyboard touchZoom
+        zoomAnimation fadeAnimation={false} markerZoomAnimation={false}
+        preferCanvas={false} zoomControl attributionControl
       >
-        <MapContent responders={responders} center={center} />
+        <ResizeHandler />
+        <FlyToCenter center={center} />
+        {showHeat && heatPoints.length > 0 && <HeatLayer points={heatPoints} />}
+
+        <TileLayer
+          key={tileUrl}
+          attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+          url={tileUrl}
+          maxZoom={19}
+          crossOrigin="anonymous"
+          updateWhenIdle={false}
+          updateWhenZooming={false}
+          keepBuffer={4}
+        />
+
+        {userLocation && (
+          <Marker position={userLocation} icon={userIcon}>
+            <Popup>
+              <div style={{ fontFamily: 'inherit', minWidth: 130 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--blue)', marginBottom: 3 }}>YOUR LOCATION</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{userLocation[0].toFixed(5)}, {userLocation[1].toFixed(5)}</div>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+
+        {showMarkers && incidents.filter(i => i.location).map(inc => (
+          <Marker key={inc.id} position={[inc.location!.lat, inc.location!.lng]} icon={incidentIcon}>
+            <Popup>
+              <div style={{ minWidth: 160, fontFamily: 'inherit' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--red)', marginBottom: 4 }}>
+                  {inc.id.slice(0, 8).toUpperCase()}
+                </div>
+                {inc.user_name && <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 2 }}>{inc.user_name}</div>}
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+                  {new Date(inc.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                  {inc.location && <span style={{ marginLeft: 6 }}>{inc.location.lat.toFixed(4)}, {inc.location.lng.toFixed(4)}</span>}
+                </div>
+                <a href={`/en/track/${inc.id}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--blue)' }}>View →</a>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {showMarkers && responders.map(r => (
+          <Marker key={r.id} position={[r.lat, r.lng]} icon={responderIcon}>
+            <Popup>
+              <div style={{ minWidth: 120 }}>
+                <strong style={{ fontSize: 13, color: 'var(--text-primary)' }}>{r.name}</strong>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, textTransform: 'capitalize' }}>{r.type} responder</p>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
       </MapContainer>
     </div>
   );
