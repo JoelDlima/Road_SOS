@@ -2,12 +2,26 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, AppState, AppStateStatus, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Activity, Ambulance, Car, MapPin, Navigation, PersonStanding, Phone, Shield, Siren, User, Zap } from 'lucide-react-native';
+import {
+  Activity,
+  ArrowRight,
+  Car,
+  HeartPulse,
+  LucideIcon,
+  MapPin,
+  Navigation,
+  PersonStanding,
+  Phone,
+  Shield,
+  Siren,
+  Zap,
+} from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { CountdownOverlay } from '../../components/CountdownOverlay';
 import { SOSButton } from '../../components/SOSButton';
-import { GhostButton, Header, IconBadge, Panel, PrimaryButton, Screen, SectionTitle, StatusPill } from '../../components/AppKit';
+import { Avatar, Divider, GhostButton, Header, IconBadge, Panel, PrimaryButton, Screen, SectionTitle, StatusPill } from '../../components/AppKit';
 import { Colors, ServiceTypeLabels, Spacing, Typography } from '../../constants/theme';
+import { serviceVisual } from '../../constants/serviceVisuals';
 import { tabContentPaddingBottom } from '../../constants/layout';
 import { useCrashDetector } from '../../hooks/useCrashDetector';
 import { useLocation } from '../../hooks/useLocation';
@@ -41,12 +55,54 @@ type HomeProfile = {
   devMode: boolean;
 };
 
-const QUICK_DIAL = [
-  { number: '112', label: 'Emergency', tone: 'red' as const, Icon: Siren },
-  { number: '108', label: 'Ambulance', tone: 'amber' as const, Icon: Ambulance },
-  { number: '100', label: 'Police', tone: 'indigo' as const, Icon: Shield },
-  { number: '1033', label: 'Highway', tone: 'blue' as const, Icon: Navigation },
+type Tone = 'red' | 'green' | 'blue' | 'amber' | 'indigo' | 'neutral';
+
+const QUICK_DIAL: { number: string; label: string; Icon: LucideIcon }[] = [
+  { number: '112', label: 'Emergency', Icon: Siren },
+  { number: '108', label: 'Ambulance', Icon: HeartPulse },
+  { number: '100', label: 'Police', Icon: Shield },
+  { number: '1033', label: 'Highway', Icon: Navigation },
 ];
+
+function ModePill({
+  Icon,
+  label,
+  tone,
+  selected,
+  onPress,
+}: {
+  Icon: LucideIcon;
+  label: string;
+  tone: 'blue' | 'green';
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const color = tone === 'blue' ? Colors.infoBlue : Colors.safeGreen;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={`${label} mode`}
+      style={({ pressed }) => ({
+        flex: 1,
+        height: 46,
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: Spacing.xs,
+        borderWidth: 1,
+        backgroundColor: selected ? `${color}1A` : Colors.surface2,
+        borderColor: selected ? `${color}59` : Colors.border,
+        opacity: pressed ? 0.8 : 1,
+      })}
+    >
+      <Icon size={18} color={selected ? color : Colors.textMuted} strokeWidth={2.2} />
+      <Text style={{ fontSize: 14, fontWeight: '700', color: selected ? color : Colors.textMuted }}>{label}</Text>
+    </Pressable>
+  );
+}
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -66,6 +122,7 @@ export default function HomeScreen() {
   servicesRef.current = services;
 
   const mode = profile?.appMode ?? 'normal';
+  const isDrive = mode === 'drive';
 
   const { isCrashDetected, gForce, jerkGs, reset } = useCrashDetector(
     profile?.crashDetectionEnabled ?? false,
@@ -243,44 +300,35 @@ export default function HomeScreen() {
     if (profile?.crashDetectionEnabled) updateServiceMode(next, profile?.crashSensitivity ?? 'medium').catch(() => {});
   }
 
-  const initials = profile?.name
-    ?.trim()
+  const initials = (profile?.name ?? '')
+    .trim()
     .split(/\s+/)
     .map((item) => item[0])
     .join('')
     .slice(0, 2)
     .toUpperCase();
 
-  const locationLabel =
-    location?.address ??
-    (location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : locationError ?? 'Acquiring GPS signal');
+  const locationLine1 = location
+    ? location.address ?? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`
+    : 'Waiting for location';
+  const locationLine2 = location ? 'GPS signal locked' : locationError ?? 'Acquiring GPS signal';
+
+  const detectionOn = profile?.crashDetectionEnabled ?? false;
+  const crashTone: Tone = detectionOn ? (isDrive ? 'amber' : 'green') : 'neutral';
+  const crashStat = detectionOn
+    ? isDrive
+      ? `${gForce.toFixed(1)}g · jerk ${jerkGs.toFixed(0)} g/s`
+      : 'Idle · no anomalies'
+    : 'Enable in Settings for automatic SOS';
 
   const nearest = services.slice(0, 3);
-
-  // Drive mode stat display (jerk is the key indicator)
-  const driveStatLabel = mode === 'drive'
-    ? `${gForce.toFixed(1)}g  ·  jerk ${jerkGs.toFixed(0)} g/s`
-    : `${gForce.toFixed(1)}g impact force`;
 
   return (
     <Screen style={{ paddingTop: insets.top }}>
       <Header
         title="RoadSoS"
-        subtitle={
-          !location ? 'Preparing location services' :
-          mode === 'drive' && profile?.crashDetectionEnabled ? 'Drive mode · monitoring active' :
-          mode === 'drive' ? 'Drive mode' :
-          'Emergency cockpit ready'
-        }
-        right={
-          <GhostButton
-            label={initials || 'Me'}
-            tone="neutral"
-            Icon={User}
-            onPress={() => router.push('/(tabs)/settings')}
-            style={{ minHeight: 42 }}
-          />
-        }
+        subtitle="Stay calm. We're with you."
+        right={<Avatar initials={initials} onPress={() => router.push('/(tabs)/settings')} />}
       />
 
       <ScrollView
@@ -289,76 +337,21 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.sosRed} />}
       >
         {/* ── Mode toggle ───────────────────────────────────────────────── */}
-        <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md }}>
-          <Pressable
-            onPress={() => toggleMode('drive')}
-            accessibilityRole="radio"
-            accessibilityLabel="Drive Mode"
-            accessibilityState={{ checked: mode === 'drive' }}
-            style={({ pressed }) => ({
-              flex: 1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: Spacing.xs,
-              paddingVertical: 12,
-              borderRadius: 12,
-              borderWidth: 1.5,
-              backgroundColor: mode === 'drive' ? `${Colors.infoBlue}18` : Colors.surface,
-              borderColor: mode === 'drive' ? Colors.infoBlue : Colors.border,
-              opacity: pressed ? 0.75 : 1,
-            })}
-          >
-            <Car size={18} color={mode === 'drive' ? Colors.infoBlue : Colors.textMuted} strokeWidth={2} />
-            <Text style={{
-              ...Typography.bodySmall,
-              fontWeight: '700',
-              color: mode === 'drive' ? Colors.infoBlue : Colors.textMuted,
-            }}>
-              Drive Mode
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => toggleMode('normal')}
-            accessibilityRole="radio"
-            accessibilityLabel="Normal Mode"
-            accessibilityState={{ checked: mode === 'normal' }}
-            style={({ pressed }) => ({
-              flex: 1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: Spacing.xs,
-              paddingVertical: 12,
-              borderRadius: 12,
-              borderWidth: 1.5,
-              backgroundColor: mode === 'normal' ? `${Colors.safeGreen}18` : Colors.surface,
-              borderColor: mode === 'normal' ? Colors.safeGreen : Colors.border,
-              opacity: pressed ? 0.75 : 1,
-            })}
-          >
-            <PersonStanding size={18} color={mode === 'normal' ? Colors.safeGreen : Colors.textMuted} strokeWidth={2} />
-            <Text style={{
-              ...Typography.bodySmall,
-              fontWeight: '700',
-              color: mode === 'normal' ? Colors.safeGreen : Colors.textMuted,
-            }}>
-              Normal Mode
-            </Text>
-          </Pressable>
+        <View style={{ flexDirection: 'row', gap: Spacing.xs, marginTop: Spacing.xxs, marginBottom: Spacing.sm }}>
+          <ModePill Icon={Car} label="Drive" tone="blue" selected={isDrive} onPress={() => toggleMode('drive')} />
+          <ModePill Icon={PersonStanding} label="Normal" tone="green" selected={!isDrive} onPress={() => toggleMode('normal')} />
         </View>
 
         {/* ── Location status ───────────────────────────────────────────── */}
-        <Panel tone={location ? 'green' : 'amber'} style={{ gap: Spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
-            <IconBadge Icon={MapPin} tone={location ? 'green' : 'amber'} />
+        <Panel>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm }}>
+            <IconBadge Icon={MapPin} tone={location ? (isDrive ? 'blue' : 'green') : 'amber'} size={38} />
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ color: Colors.textPrimary, ...Typography.bodySmall, fontWeight: '800' }}>
-                {location ? 'Location locked' : 'Waiting for location'}
+              <Text style={{ color: Colors.textPrimary, fontSize: 15, lineHeight: 20, fontWeight: '700' }} numberOfLines={1}>
+                {locationLine1}
               </Text>
-              <Text style={{ color: Colors.textMuted, ...Typography.caption, marginTop: 2 }} numberOfLines={2}>
-                {locationLabel}
+              <Text style={{ color: Colors.textMuted, fontSize: 12.5, lineHeight: 17, marginTop: 2 }} numberOfLines={1}>
+                {locationLine2}
               </Text>
             </View>
             <StatusPill label={location ? 'GPS' : 'Pending'} tone={location ? 'green' : 'amber'} />
@@ -366,7 +359,7 @@ export default function HomeScreen() {
         </Panel>
 
         {/* ── SOS button ────────────────────────────────────────────────── */}
-        <View style={{ alignItems: 'center', paddingVertical: Spacing.xl }}>
+        <View style={{ alignItems: 'center', paddingVertical: Spacing.lg }}>
           <SOSButton
             onPress={confirmManualSOS}
             disabled={isTriggering}
@@ -375,33 +368,21 @@ export default function HomeScreen() {
             accessibilityState={{ disabled: isTriggering }}
           />
           <Text style={{ color: Colors.textMuted, ...Typography.bodySmall, textAlign: 'center', marginTop: Spacing.sm }}>
-            {isTriggering ? 'Sending alert to contacts...' : 'Press once. Confirm once. RoadSoS handles the rest.'}
+            {isTriggering ? 'Sending alert to contacts…' : 'Press once. Confirm once.'}
           </Text>
         </View>
 
         {/* ── Crash detection status ────────────────────────────────────── */}
-        <Panel tone={profile?.crashDetectionEnabled ? (mode === 'drive' ? 'amber' : 'green') : 'neutral'} style={{ gap: Spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
-            <IconBadge
-              Icon={mode === 'drive' ? Zap : Activity}
-              tone={profile?.crashDetectionEnabled ? (mode === 'drive' ? 'amber' : 'green') : 'neutral'}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: Colors.textPrimary, ...Typography.bodySmall, fontWeight: '800' }}>
-                {profile?.crashDetectionEnabled
-                  ? `${mode === 'drive' ? 'Drive' : 'Normal'} crash detection active`
-                  : 'Crash detection off'}
+        <Panel tone={crashTone} style={{ gap: Spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+            <IconBadge Icon={isDrive ? Zap : Activity} tone={crashTone} size={36} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: Colors.textPrimary, fontSize: 14, lineHeight: 19, fontWeight: '700' }}>
+                {detectionOn ? (isDrive ? 'Drive crash detection' : 'Walk monitoring') : 'Crash detection off'}
               </Text>
-              <Text style={{ color: Colors.textMuted, ...Typography.caption, marginTop: 2 }}>
-                {profile?.crashDetectionEnabled
-                  ? driveStatLabel
-                  : 'Enable in Profile for automatic SOS.'}
-              </Text>
+              <Text style={{ color: Colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: 1 }}>{crashStat}</Text>
             </View>
-            <StatusPill
-              label={profile?.crashDetectionEnabled ? (mode === 'drive' ? 'Drive' : 'On') : 'Off'}
-              tone={profile?.crashDetectionEnabled ? (mode === 'drive' ? 'amber' : 'green') : 'neutral'}
-            />
+            <StatusPill label={detectionOn ? (isDrive ? 'Drive' : 'Normal') : 'Off'} tone={crashTone} />
           </View>
           {profile?.devMode ? (
             <PrimaryButton label="Simulate crash" tone="amber" Icon={Activity} onPress={() => setCountdownVisible(true)} />
@@ -412,51 +393,68 @@ export default function HomeScreen() {
         <SectionTitle label="Quick dial" />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
           {QUICK_DIAL.map((item) => (
-            <Panel key={item.number} tone={item.tone} style={{ width: '48%', gap: Spacing.sm }}>
-              <IconBadge Icon={item.Icon} tone={item.tone} />
+            <Panel key={item.number} style={{ width: '48%', gap: Spacing.xs }}>
+              <IconBadge Icon={item.Icon} tone="red" size={34} />
               <View>
-                <Text style={{ color: Colors.textPrimary, fontSize: 24, lineHeight: 30, fontWeight: '900' }}>{item.number}</Text>
+                <Text style={{ color: Colors.textPrimary, fontSize: 20, lineHeight: 25, fontWeight: '800' }}>{item.number}</Text>
                 <Text style={{ color: Colors.textMuted, ...Typography.caption }}>{item.label}</Text>
               </View>
               <GhostButton
                 label="Call"
-                tone={item.tone}
                 Icon={Phone}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   Linking.openURL(`tel:${item.number}`);
                 }}
+                style={{ minHeight: 38 }}
               />
             </Panel>
           ))}
         </View>
 
         {/* ── Nearby help ───────────────────────────────────────────────── */}
-        <SectionTitle
-          label="Nearby help"
-          action={<StatusPill label={isOffline ? 'Offline data' : dataSource} tone={isOffline ? 'amber' : 'green'} />}
-        />
-        <Panel style={{ gap: Spacing.sm }}>
+        <SectionTitle label="Nearby help" action={<StatusPill label={isOffline ? 'Offline' : 'Live'} tone={isOffline ? 'amber' : 'green'} />} />
+        <Panel padded={false}>
           {nearest.length === 0 ? (
-            <Text style={{ color: Colors.textMuted, ...Typography.bodySmall }}>
+            <Text style={{ color: Colors.textMuted, ...Typography.bodySmall, padding: Spacing.md }}>
               Nearby services will appear once location is available.
             </Text>
           ) : (
-            nearest.map((service) => (
-              <View key={service.id} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={{ color: Colors.textPrimary, ...Typography.bodySmall, fontWeight: '800' }} numberOfLines={1}>
-                    {service.name}
-                  </Text>
-                  <Text style={{ color: Colors.textMuted, ...Typography.caption }} numberOfLines={1}>
-                    {ServiceTypeLabels[service.service_type]} — {service.distance_km.toFixed(1)} km
-                  </Text>
+            nearest.map((service, index) => {
+              const vis = serviceVisual(service.service_type);
+              return (
+                <View key={service.id}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, padding: Spacing.sm }}>
+                    <IconBadge Icon={vis.Icon} tone={vis.tone} size={34} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ color: Colors.textPrimary, fontSize: 14, lineHeight: 19, fontWeight: '700' }} numberOfLines={1}>
+                        {service.name}
+                      </Text>
+                      <Text style={{ color: Colors.textMuted, ...Typography.caption }} numberOfLines={1}>
+                        {ServiceTypeLabels[service.service_type] ?? 'Service'} · {service.distance_km.toFixed(1)} km
+                      </Text>
+                    </View>
+                    <GhostButton
+                      label="Call"
+                      onPress={() => Linking.openURL(`tel:${service.primary_phone}`)}
+                      style={{ minHeight: 36, paddingHorizontal: 16 }}
+                    />
+                  </View>
+                  {index < nearest.length - 1 ? <Divider /> : null}
                 </View>
-                <GhostButton label="Call" tone="green" Icon={Phone} onPress={() => Linking.openURL(`tel:${service.primary_phone}`)} />
-              </View>
-            ))
+              );
+            })
           )}
-          <GhostButton label="Open services map" tone="blue" Icon={MapPin} onPress={() => router.push('/(tabs)/services')} />
+          <Divider />
+          <View style={{ padding: 10 }}>
+            <GhostButton
+              label="View all services"
+              Icon={ArrowRight}
+              tone="blue"
+              onPress={() => router.push('/(tabs)/services')}
+              style={{ minHeight: 40 }}
+            />
+          </View>
         </Panel>
       </ScrollView>
 

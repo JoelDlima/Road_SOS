@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
-import { ArrowLeftRight, Bot, Car, HeartPulse, Loader, Stethoscope, Wifi, WifiOff, Wrench } from 'lucide-react-native';
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ArrowLeftRight, Bot, Car, HeartPulse, Loader, Siren, Stethoscope, Wrench } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ChatInput from '../../components/ChatInput';
 import { ChatBubble } from '../../components/ChatBubble';
-import { colorForTone, Header, IconBadge, Panel, Screen, StatusPill } from '../../components/AppKit';
+import { Chip, colorForTone, Header, Panel, Screen, StatusPill } from '../../components/AppKit';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import { TAB_BAR_TOTAL } from '../../constants/layout';
 import { useLocation } from '../../hooks/useLocation';
@@ -19,10 +19,11 @@ import { ChatMessage } from '../../types';
 type ResolvedTier = 'cloud' | 'local' | 'offline';
 
 const QUICK_ACTIONS = [
-  { label: 'Crash', prompt: 'I was in a road accident. What should I do first?', Icon: Car, tone: 'red' as const },
-  { label: 'Bleeding', prompt: 'How do I stop severe bleeding after an accident?', Icon: HeartPulse, tone: 'red' as const },
-  { label: 'CPR', prompt: 'Someone is unconscious and not breathing. Give me CPR steps.', Icon: Stethoscope, tone: 'blue' as const },
-  { label: 'Breakdown', prompt: 'My vehicle broke down on the highway. What should I do?', Icon: Wrench, tone: 'amber' as const },
+  { label: 'First Aid', prompt: 'Give me first-aid steps for an injured person after a road accident.', Icon: HeartPulse },
+  { label: 'Car accident', prompt: 'I was in a road accident. What should I do first?', Icon: Car },
+  { label: 'Breakdown', prompt: 'My vehicle broke down on the highway. What should I do?', Icon: Wrench },
+  { label: 'Medical', prompt: 'Someone is unconscious and not breathing. Give me CPR steps.', Icon: Stethoscope },
+  { label: 'Incident', prompt: 'Help me report a road incident and note the right details.', Icon: Siren },
 ];
 
 /**
@@ -307,11 +308,9 @@ export default function ChatScreen() {
 
   // Toggle is available only when both online and a local model are ready.
   const canToggle = online && localReady && isLLMReady();
-  const toggleColor = colorForTone(forceLocal ? 'indigo' : 'green');
-  const ToggleIcon = forceLocal ? WifiOff : Wifi;
-  const toggleLabel = forceLocal ? shortModelName : 'Online';
+  const indigo = colorForTone('indigo');
 
-  // Loading indicator color
+  // Loading indicator colour.
   const initColor = colorForTone('amber');
   const initTookTooLong = initElapsed >= 60;
 
@@ -319,11 +318,15 @@ export default function ChatScreen() {
     <Screen style={{ paddingTop: insets.top }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Header
-          title="Assistant"
+          title="AI Assistant"
           subtitle={
             isInitializing
               ? `Loading ${shortModelName}…`
-              : tier === 'cloud' ? 'Cloud-powered guidance' : tier === 'local' ? `${localModelName} active` : 'Offline first-aid playbook'
+              : tier === 'cloud'
+                ? 'Online · cloud guidance'
+                : tier === 'local'
+                  ? `Offline · ${shortModelName}`
+                  : 'Offline · first-aid playbook'
           }
           right={
             isInitializing ? (
@@ -351,25 +354,43 @@ export default function ChatScreen() {
                 accessibilityState={{ checked: forceLocal }}
                 hitSlop={8}
                 style={({ pressed }) => ({
-                  flexDirection: 'row',
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
                   alignItems: 'center',
-                  gap: 5,
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 999,
-                  backgroundColor: `${toggleColor}1A`,
+                  justifyContent: 'center',
+                  backgroundColor: `${indigo}1A`,
+                  borderWidth: 1,
+                  borderColor: `${indigo}4D`,
                   opacity: pressed ? 0.7 : 1,
                 })}
               >
-                <ToggleIcon size={12} color={toggleColor} />
-                <Text style={{ fontSize: 12, fontWeight: '600', color: toggleColor }}>{toggleLabel}</Text>
-                <ArrowLeftRight size={10} color={toggleColor} strokeWidth={2.5} />
+                <ArrowLeftRight size={18} color={indigo} />
               </Pressable>
             ) : (
               <StatusPill label={tierLabel} tone={tierTone} />
             )
           }
         />
+
+        {/* Quick prompt chips — always available above the conversation. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: Spacing.xs, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm }}
+          style={{ flexGrow: 0 }}
+        >
+          {QUICK_ACTIONS.map((item) => (
+            <Chip
+              key={item.label}
+              label={item.label}
+              Icon={item.Icon}
+              selected={false}
+              tone="indigo"
+              onPress={() => sendMessage(item.prompt)}
+            />
+          ))}
+        </ScrollView>
 
         <FlatList
           ref={listRef}
@@ -381,44 +402,32 @@ export default function ChatScreen() {
           contentContainerStyle={{ flexGrow: 1, paddingBottom: Spacing.md }}
           onContentSizeChange={() => messages.length > 0 && listRef.current?.scrollToEnd({ animated: true })}
           ListEmptyComponent={
-            <View style={{ flex: 1, padding: Spacing.lg, gap: Spacing.md }}>
-              <Panel tone="blue" style={{ alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xl }}>
-                <Image
-                  source={require('../../assets/roadsosLogo.png')}
-                  style={{ width: 78, height: 78, borderRadius: 16, marginBottom: Spacing.xs }}
-                  resizeMode="contain"
-                />
-                <View style={{ flexDirection: 'row', gap: Spacing.xs, alignItems: 'center' }}>
-                  <IconBadge Icon={online ? Bot : WifiOff} tone={online ? 'blue' : 'amber'} size={32} />
-                  <Text style={{ color: Colors.textPrimary, ...Typography.h2 }}>What happened?</Text>
+            <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.lg }}>
+              <Panel tone="indigo" style={{ alignItems: 'center', paddingVertical: Spacing.xl }}>
+                <View
+                  style={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 16,
+                    backgroundColor: `${indigo}24`,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: Spacing.sm,
+                  }}
+                >
+                  <Bot size={34} color={indigo} />
                 </View>
-                <Text style={{ color: Colors.textMuted, ...Typography.bodySmall, textAlign: 'center' }}>
-                  {`Ask for immediate steps. Online uses cloud AI — offline uses ${localReady ? localModelName : 'built-in first-aid answers'}.`}
+                <Text style={{ color: Colors.textPrimary, ...Typography.h3, textAlign: 'center' }}>
+                  Chat with your co-pilot
+                </Text>
+                <Text style={{ color: Colors.textMuted, ...Typography.bodySmall, textAlign: 'center', marginTop: 6 }}>
+                  {online
+                    ? 'Ask for first-aid, accident or breakdown steps — answered by cloud AI.'
+                    : localReady
+                      ? `Offline — answers from ${localModelName} on your device.`
+                      : 'Offline — short first-aid answers from the built-in playbook.'}
                 </Text>
               </Panel>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
-                {QUICK_ACTIONS.map((item) => (
-                  <Pressable
-                    key={item.label}
-                    accessibilityRole="button"
-                    accessibilityLabel={item.label}
-                    onPress={() => sendMessage(item.prompt)}
-                    style={({ pressed }) => ({
-                      width: '48%',
-                      backgroundColor: Colors.surface,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: Colors.border,
-                      padding: Spacing.md,
-                      gap: Spacing.sm,
-                      opacity: pressed ? 0.78 : 1,
-                    })}
-                  >
-                    <IconBadge Icon={item.Icon} tone={item.tone} />
-                    <Text style={{ color: Colors.textPrimary, ...Typography.bodySmall, fontWeight: '800' }}>{item.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
             </View>
           }
         />

@@ -6,6 +6,7 @@ import { Chip, EmptyState, GhostButton, StatusPill } from '../../components/AppK
 import { LeafletMap } from '../../components/LeafletMap';
 import { ServiceCard } from '../../components/ServiceCard';
 import { Colors, Radius, ServiceTypeColors, Spacing, Typography } from '../../constants/theme';
+import { serviceVisual } from '../../constants/serviceVisuals';
 import { TAB_BAR_TOTAL } from '../../constants/layout';
 import { useLocation } from '../../hooks/useLocation';
 import { useNearbyServices } from '../../hooks/useNearbyServices';
@@ -114,7 +115,7 @@ export default function ServicesScreen() {
       <View style={[styles.topBar, { paddingTop: insets.top + Spacing.sm }]}>
         <View style={styles.topBarRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Services</Text>
+            <Text style={styles.title}>Nearby services</Text>
             <Text style={styles.subtitle} numberOfLines={1}>
               {region ? region.name : location ? 'Searching nearby' : 'Waiting for location'}
             </Text>
@@ -127,18 +128,22 @@ export default function ServicesScreen() {
           contentContainerStyle={{ gap: Spacing.xs, paddingVertical: Spacing.xs, paddingHorizontal: Spacing.lg }}
           style={{ marginHorizontal: -Spacing.lg, marginTop: Spacing.sm }}
         >
-          {FILTERS.map((item) => (
-            <Chip
-              key={item.value}
-              label={item.label}
-              selected={filter === item.value}
-              onPress={() => {
-                setFilter(item.value);
-                setFocusedId(null);
-              }}
-              tone={item.value === 'all' ? 'blue' : item.value === 'trauma_centre' ? 'red' : 'neutral'}
-            />
-          ))}
+          {FILTERS.map((item) => {
+            const vis = item.value === 'all' ? null : serviceVisual(item.value);
+            return (
+              <Chip
+                key={item.value}
+                label={item.label}
+                Icon={vis?.Icon}
+                selected={filter === item.value}
+                onPress={() => {
+                  setFilter(item.value);
+                  setFocusedId(null);
+                }}
+                tone={vis ? vis.tone : 'red'}
+              />
+            );
+          })}
         </ScrollView>
       </View>
 
@@ -218,21 +223,12 @@ export default function ServicesScreen() {
           ) : (
             <View style={{ gap: Spacing.sm }}>
               {services.map((service) => (
-                <Pressable
+                <ServiceCard
                   key={service.id}
-                  onPress={() => {
-                    setFocusedId((current) => (current === service.id ? null : service.id));
-                    if (!expanded) toggleExpanded(false);
-                  }}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.85 : 1,
-                    borderRadius: Radius.lg,
-                    borderWidth: focusedId === service.id ? 1.5 : 0,
-                    borderColor: focusedId === service.id ? Colors.sosRed : 'transparent',
-                  })}
-                >
-                  <ServiceCard service={service} />
-                </Pressable>
+                  service={service}
+                  expanded={focusedId === service.id}
+                  onToggle={() => setFocusedId((current) => (current === service.id ? null : service.id))}
+                />
               ))}
             </View>
           )}

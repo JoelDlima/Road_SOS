@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { Check, Eye, EyeOff, User } from 'lucide-react-native';
+import { Check, Eye, EyeOff, ShieldCheck } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { GhostButton, Header, IconBadge, Panel, PrimaryButton, Screen, TextField } from '../../components/AppKit';
+import { Divider, GhostButton, Header, PrimaryButton, Screen, TextField } from '../../components/AppKit';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import { signUp, syncToCloud } from '../../lib/auth';
 import { getUserProfile } from '../../lib/offline-cache';
@@ -80,22 +80,44 @@ export default function SignUpScreen() {
   return (
     <Screen style={{ paddingTop: insets.top }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Header title="Create account" subtitle="Optional cloud sync" showBack />
+        <Header title="Create account" subtitle="Sync incidents and profile" showBack />
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: Spacing.lg, paddingBottom: insets.bottom + Spacing.xxl }}
+          contentContainerStyle={{ flexGrow: 1, padding: Spacing.lg, paddingBottom: insets.bottom + Spacing.xxl }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Panel tone="green" style={{ gap: Spacing.md }}>
-            <IconBadge Icon={User} tone="green" size={58} />
-            <View>
-              <Text style={{ color: Colors.textPrimary, ...Typography.h1 }}>Keep data in sync</Text>
-              <Text style={{ color: Colors.textMuted, ...Typography.bodySmall, marginTop: 4 }}>
-                Create an account only if you want cloud backup for your profile and contacts.
-              </Text>
-            </View>
+          {/* Hero */}
+          <View
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 14,
+              backgroundColor: `${Colors.safeGreen}1F`,
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: Spacing.xs,
+              marginBottom: Spacing.md,
+            }}
+          >
+            <ShieldCheck size={30} color={Colors.safeGreen} strokeWidth={2.2} />
+          </View>
+          <Text style={{ color: Colors.textPrimary, ...Typography.h1 }}>Keep data in sync</Text>
+          <Text style={{ color: Colors.textMuted, ...Typography.bodySmall, marginTop: 4 }}>
+            Create an account only if you want cloud backup for your profile and contacts.
+          </Text>
+
+          {/* Form */}
+          <View style={{ gap: Spacing.sm, marginTop: Spacing.xl }}>
             <TextField label="Name" value={name} onChangeText={setName} placeholder="Your name" autoComplete="name" />
-            <TextField label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoComplete="email" />
+            <TextField
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+            />
             <TextField
               label="Password"
               value={password}
@@ -117,15 +139,46 @@ export default function SignUpScreen() {
               error={confirm && confirm !== password ? 'Passwords do not match' : undefined}
               onSubmitEditing={submit}
             />
-            <GhostButton label={showPassword ? 'Hide password' : 'Show password'} Icon={showPassword ? EyeOff : Eye} onPress={() => setShowPassword((value) => !value)} />
-            <PrimaryButton label={loading ? 'Creating...' : 'Create account'} tone="green" Icon={loading ? undefined : User} onPress={submit} disabled={loading} />
-            {loading ? <ActivityIndicator color={Colors.safeGreen} /> : null}
-          </Panel>
-
-          <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md }}>
-            <GhostButton label="Sign in" tone="blue" onPress={() => router.push('/auth/sign-in')} style={{ flex: 1 }} />
-            <GhostButton label="Use offline" onPress={() => router.replace('/(tabs)')} style={{ flex: 1 }} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+              onPress={() => setShowPassword((value) => !value)}
+              hitSlop={8}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-end' }}
+            >
+              {showPassword ? <EyeOff size={14} color={Colors.textMuted} /> : <Eye size={14} color={Colors.textMuted} />}
+              <Text style={{ color: Colors.textMuted, ...Typography.caption }}>{showPassword ? 'Hide password' : 'Show password'}</Text>
+            </Pressable>
           </View>
+
+          <PrimaryButton
+            label={loading ? 'Creating…' : 'Create account'}
+            tone="green"
+            onPress={submit}
+            disabled={loading}
+            style={{ marginTop: Spacing.lg }}
+          />
+          {loading ? <ActivityIndicator color={Colors.safeGreen} style={{ marginTop: Spacing.sm }} /> : null}
+
+          {/* OR divider */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginVertical: Spacing.xl }}>
+            <Divider style={{ flex: 1 }} />
+            <Text style={{ color: Colors.textFaint, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>OR</Text>
+            <Divider style={{ flex: 1 }} />
+          </View>
+
+          <GhostButton label="Continue without account" onPress={() => router.replace('/(tabs)')} />
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Sign in instead"
+            onPress={() => router.push('/auth/sign-in')}
+            hitSlop={8}
+            style={{ alignSelf: 'center', flexDirection: 'row', marginTop: Spacing.xl }}
+          >
+            <Text style={{ color: Colors.textMuted, ...Typography.bodySmall }}>Already have an account? </Text>
+            <Text style={{ color: Colors.sosRed, ...Typography.bodySmall, fontWeight: '800' }}>Sign in</Text>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

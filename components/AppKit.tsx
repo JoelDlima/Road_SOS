@@ -274,13 +274,16 @@ export function Chip({
   selected,
   onPress,
   tone = 'blue',
+  Icon,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
   tone?: Tone;
+  Icon?: LucideIcon;
 }) {
   const color = colorForTone(tone);
+  const fg = selected ? color : Colors.textMuted;
   return (
     <Pressable
       accessibilityRole="button"
@@ -292,18 +295,104 @@ export function Chip({
         borderRadius: Radius.pill,
         paddingHorizontal: 13,
         paddingVertical: 8,
-        justifyContent: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
         backgroundColor: selected ? `${color}1F` : Colors.surface2,
         borderWidth: 1,
         borderColor: selected ? `${color}80` : Colors.border,
         opacity: pressed ? 0.78 : 1,
       })}
     >
-      <Text style={{ color: selected ? color : Colors.textMuted, fontSize: 13, lineHeight: 18, fontWeight: '700' }} numberOfLines={1}>
+      {Icon ? <Icon size={14} color={fg} strokeWidth={2.2} /> : null}
+      <Text style={{ color: fg, fontSize: 13, lineHeight: 18, fontWeight: '700' }} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
   );
+}
+
+export function Avatar({
+  initials,
+  onPress,
+  size = 40,
+}: {
+  initials: string;
+  onPress?: () => void;
+  size?: number;
+}) {
+  const content = (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: Colors.surface2,
+        borderWidth: 1,
+        borderColor: `${Colors.sosRed}59`,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Text style={{ color: Colors.textPrimary, fontSize: Math.round(size * 0.32), fontWeight: '800', letterSpacing: 0.3 }}>
+        {initials || '·'}
+      </Text>
+    </View>
+  );
+  if (!onPress) return content;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Open profile"
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+    >
+      {content}
+    </Pressable>
+  );
+}
+
+export function Switch({
+  value,
+  onValueChange,
+  disabled = false,
+}: {
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value, disabled }}
+      disabled={disabled}
+      hitSlop={10}
+      onPress={() => onValueChange(!value)}
+      style={{
+        width: 46,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: value ? Colors.sosRed : Colors.surface3,
+        padding: 3,
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      <View
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 11,
+          backgroundColor: '#FFFFFF',
+          alignSelf: value ? 'flex-end' : 'flex-start',
+        }}
+      />
+    </Pressable>
+  );
+}
+
+export function Divider({ style }: { style?: StyleProp<ViewStyle> }) {
+  return <View style={[{ height: 1, backgroundColor: Colors.border }, style]} />;
 }
 
 export function TextField({

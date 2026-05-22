@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Activity, Cpu, Database, MessageSquare, Shield, User } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ContactList from '../../components/ContactList';
-import { Chip, DataRow, GhostButton, Header, IconBadge, LoadingState, Panel, Screen, SectionTitle, StatusPill, TextField } from '../../components/AppKit';
+import { Chip, DataRow, GhostButton, Header, IconBadge, LoadingState, Panel, Screen, SectionTitle, StatusPill, Switch, TextField } from '../../components/AppKit';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import { tabContentPaddingBottom } from '../../constants/layout';
 import { getEmergencyContacts, getSeedForRegion, getUserProfile, loadServicesCache, saveEmergencyContacts, saveServicesCache, saveUserProfile } from '../../lib/offline-cache';
@@ -218,11 +218,8 @@ export default function SettingsScreen() {
                 <Text style={{ color: Colors.textMuted, ...Typography.caption }}>Start a countdown after a severe impact.</Text>
               </View>
               <Switch
-                accessibilityLabel="Toggle crash detection"
                 value={profile.crashDetectionEnabled}
                 onValueChange={(value) => updateProfile({ crashDetectionEnabled: value })}
-                trackColor={{ false: Colors.surface3, true: Colors.safeGreen }}
-                thumbColor="#FFFFFF"
               />
             </View>
             <View style={{ flexDirection: 'row', gap: Spacing.xs }}>
@@ -277,11 +274,8 @@ export default function SettingsScreen() {
                 <Text style={{ color: Colors.textMuted, ...Typography.caption }}>Reduce background work when power is low.</Text>
               </View>
               <Switch
-                accessibilityLabel="Toggle emergency battery mode"
                 value={!!profile.batteryOptimization}
                 onValueChange={(value) => updateProfile({ batteryOptimization: value })}
-                trackColor={{ false: Colors.surface3, true: Colors.warningAmber }}
-                thumbColor="#FFFFFF"
               />
             </View>
             <View style={{ height: 1, backgroundColor: Colors.border }} />
@@ -292,11 +286,8 @@ export default function SettingsScreen() {
                 <Text style={{ color: Colors.textMuted, ...Typography.caption }}>Adds crash simulation to the SOS screen.</Text>
               </View>
               <Switch
-                accessibilityLabel="Toggle developer mode"
                 value={profile.devMode}
                 onValueChange={(value) => updateProfile({ devMode: value })}
-                trackColor={{ false: Colors.surface3, true: Colors.warningAmber }}
-                thumbColor="#FFFFFF"
               />
             </View>
           </Panel>
