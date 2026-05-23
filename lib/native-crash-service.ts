@@ -62,6 +62,36 @@ export async function updateNativeCrashConfig(
   }
 }
 
+/** Stop the native service's countdown so the auto-SOS does NOT fire. */
+export async function cancelNativeCountdown(): Promise<void> {
+  if (!isNativeCrashServiceAvailable) return;
+  try {
+    await RoadSoSCrashDetection.cancelCountdown();
+  } catch {
+    // ignore — no countdown running
+  }
+}
+
+/** Skip the remaining countdown and have the native service fire the SOS now. */
+export async function sendNativeSosNow(): Promise<void> {
+  if (!isNativeCrashServiceAvailable) return;
+  try {
+    await RoadSoSCrashDetection.sendSosNow();
+  } catch {
+    // ignore
+  }
+}
+
+/** Dev/testing — trigger the full native crash flow without a real impact. */
+export async function simulateNativeCrash(): Promise<void> {
+  if (!isNativeCrashServiceAvailable) return;
+  try {
+    await RoadSoSCrashDetection.simulateCrash();
+  } catch {
+    // ignore
+  }
+}
+
 export async function stopNativeVibration(): Promise<void> {
   if (!isNativeCrashServiceAvailable) return;
   try {

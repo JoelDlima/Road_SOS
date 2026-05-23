@@ -46,6 +46,8 @@ class CrashDetectionService : Service(), SensorEventListener {
         const val ACTION_UPDATE           = "com.roadsos.mobile.CRASH_UPDATE"
         const val ACTION_STOP_VIBRATION   = "com.roadsos.mobile.CRASH_STOP_VIB"
         const val ACTION_CANCEL_COUNTDOWN = "com.roadsos.mobile.CRASH_CANCEL"
+        const val ACTION_SEND_NOW         = "com.roadsos.mobile.CRASH_SEND_NOW"
+        const val ACTION_SIMULATE         = "com.roadsos.mobile.CRASH_SIMULATE"
 
         const val EXTRA_MODE        = "mode"
         const val EXTRA_SENSITIVITY = "sensitivity"
@@ -139,6 +141,21 @@ class CrashDetectionService : Service(), SensorEventListener {
             }
             ACTION_CANCEL_COUNTDOWN -> {
                 cancelCountdown()
+                return START_STICKY
+            }
+            ACTION_SEND_NOW -> {
+                // Skip the rest of the countdown and fire the SOS right now.
+                if (countdownActive) {
+                    countdownActive = false
+                    countdownHandler.removeCallbacksAndMessages(null)
+                    executeSOS()
+                }
+                return START_STICKY
+            }
+            ACTION_SIMULATE -> {
+                // Dev/testing — run the full crash flow without a real impact.
+                startForeground(NOTIF_ID_SERVICE, buildServiceNotification())
+                if (!countdownActive) dispatchCrash()
                 return START_STICKY
             }
             ACTION_UPDATE -> {
@@ -304,13 +321,18 @@ class CrashDetectionService : Service(), SensorEventListener {
     private fun sendCrashLogToSupabase(): Boolean {
         return try {
             val prefs = getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
-            val lat   = prefs.getString(PREF_LOCATION_LAT, "0") ?: "0"
-            val lng   = prefs.getString(PREF_LOCATION_LNG, "0") ?: "0"
-            val addr  = (prefs.getString(PREF_LOCATION_ADDR, "") ?: "").replace("\"", "'")
-            val iso   = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+            val latRaw = prefs.getString(PREF_LOCATION_LAT, "") ?: ""
+            val lngRaw = prefs.getString(PREF_LOCATION_LNG, "") ?: ""
+            val addr   = (prefs.getString(PREF_LOCATION_ADDR, "") ?: "").replace("\"", "'")
+            val iso    = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
             val addrJson = if (addr.isBlank()) "null" else "\"$addr\""
+            // Write null (not 0,0) when no GPS fix is on record — a 0,0 row
+            // would pin the crash to the ocean on the responder dashboard.
+            val hasLoc  = isValidCoord(latRaw) && isValidCoord(lngRaw)
+            val latJson = if (hasLoc) latRaw else "null"
+            val lngJson = if (hasLoc) lngRaw else "null"
 
-            val json = """{"mode":"$mode","sensitivity":"$sensitivity","g_force":${lastGForce.toBigDecimal().toPlainString()},"jerk_gs":${lastJerkGs.toBigDecimal().toPlainString()},"latitude":$lat,"longitude":$lng,"address":$addrJson,"device_platform":"android","detected_at":"$iso","outcome":null}"""
+            val json = """{"mode":"$mode","sensitivity":"$sensitivity","g_force":${lastGForce.toBigDecimal().toPlainString()},"jerk_gs":${lastJerkGs.toBigDecimal().toPlainString()},"latitude":$latJson,"longitude":$lngJson,"address":$addrJson,"device_platform":"android","detected_at":"$iso","outcome":null}"""
 
             val url  = URL("${BuildConfig.SUPABASE_URL}/rest/v1/crash_logs")
             val conn = url.openConnection() as HttpURLConnection
@@ -340,17 +362,21 @@ class CrashDetectionService : Service(), SensorEventListener {
                 .split(",").map { it.trim() }.filter { it.isNotBlank() }
             if (phones.isEmpty()) return false
 
-            val lat    = prefs.getString(PREF_LOCATION_LAT, "0") ?: "0"
-            val lng    = prefs.getString(PREF_LOCATION_LNG, "0") ?: "0"
+            val latRaw = prefs.getString(PREF_LOCATION_LAT, "") ?: ""
+            val lngRaw = prefs.getString(PREF_LOCATION_LNG, "") ?: ""
             val addr   = prefs.getString(PREF_LOCATION_ADDR, "") ?: ""
             val name   = prefs.getString(PREF_USER_NAME, "RoadSoS User") ?: "RoadSoS User"
-            val locStr = if (addr.isNotBlank()) addr else "$lat,$lng"
-            val mapUrl = "https://maps.google.com/?q=$lat,$lng"
+            val hasLoc = isValidCoord(latRaw) && isValidCoord(lngRaw)
+            val locStr = when {
+                addr.isNotBlank() -> addr
+                hasLoc            -> "$latRaw, $lngRaw"
+                else              -> "location unavailable — call back immediately"
+            }
+            val mapLine = if (hasLoc) "\nMap: https://maps.google.com/?q=$latRaw,$lngRaw" else ""
             val message =
                 "🚨 EMERGENCY: $name may need help!\n" +
                 "Location: $locStr\n" +
-                "Triggered: auto crash detection\n" +
-                "Map: $mapUrl"
+                "Triggered: auto crash detection" + mapLine
 
             val smsManager: SmsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 getSystemService(SmsManager::class.java)
@@ -375,6 +401,12 @@ class CrashDetectionService : Service(), SensorEventListener {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /** A stored coordinate is usable only if it parses and isn't the 0,0 default. */
+    private fun isValidCoord(raw: String): Boolean {
+        val v = raw.toDoubleOrNull() ?: return false
+        return v != 0.0
     }
 
     // ── Notifications ─────────────────────────────────────────────────────

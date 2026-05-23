@@ -37,7 +37,10 @@ import {
   updateServiceMode,
 } from '../../lib/background-service';
 import {
+  cancelNativeCountdown,
   isNativeCrashServiceAvailable,
+  sendNativeSosNow,
+  simulateNativeCrash,
   stopNativeVibration,
   storeContactsNative,
   storeLocationNative,
@@ -124,8 +127,11 @@ export default function HomeScreen() {
   const mode = profile?.appMode ?? 'normal';
   const isDrive = mode === 'drive';
 
+  // The native foreground service is the sole crash detector on Android.
+  // The JS accelerometer detector only runs where there is no native service
+  // (iOS) — running both at once caused double detection / double SOS.
   const { isCrashDetected, gForce, jerkGs, reset } = useCrashDetector(
-    profile?.crashDetectionEnabled ?? false,
+    (profile?.crashDetectionEnabled ?? false) && !isNativeCrashServiceAvailable,
     mode,
     profile?.crashSensitivity ?? 'medium',
   );
@@ -173,18 +179,20 @@ export default function HomeScreen() {
     }
   }, [profile?.crashDetectionEnabled, profile?.crashSensitivity, mode]);
 
-  // Subscribe to live crash events from the native foreground service
+  // The native foreground service detected a crash and started its own 15s
+  // countdown. Mirror it with the in-app overlay — the overlay buttons drive
+  // the native countdown (cancel / send-now). The native timer is authoritative
+  // and the native service writes the crash log + SMS when it fires.
   useEffect(() => {
     if (!isNativeCrashServiceAvailable || !profile?.crashDetectionEnabled) return;
     const unsub = subscribeNativeCrashEvent(() => {
-      if (appState.current === 'active' && !countdownVisible) {
-        logCrashDetected(mode, profile?.crashSensitivity ?? 'medium', gForce, jerkGs, locationRef.current).catch(() => {});
+      if (appState.current === 'active') {
         setCountdown(15);
         setCountdownVisible(true);
       }
     });
     return unsub;
-  }, [profile?.crashDetectionEnabled, countdownVisible, mode, gForce, jerkGs]);
+  }, [profile?.crashDetectionEnabled]);
 
   // Track AppState — when returning from background check for pending crash events
   useEffect(() => {
@@ -192,7 +200,11 @@ export default function HomeScreen() {
       const prev = appState.current;
       appState.current = nextState;
 
-      // App came back to foreground — check if native service stored a crash while hidden
+      // iOS only: JS owns background crash handling. On Android the native
+      // foreground service runs the countdown + SOS end-to-end while the app
+      // is away — there is nothing for JS to resume.
+      if (isNativeCrashServiceAvailable) return;
+      // App came back to foreground — check if a crash was stored while hidden
       if (prev !== 'active' && nextState === 'active') {
         const hasPending = await consumePendingCrash();
         if (hasPending && !countdownVisible) {
@@ -205,10 +217,19 @@ export default function HomeScreen() {
     return () => sub.remove();
   }, [countdownVisible, mode, gForce, jerkGs]);
 
-  const sendAutoSOS = useCallback(async () => {
+  // "Send SOS now" — skip the rest of the countdown. On Android the native
+  // service owns SMS + crash log, so tell it to fire immediately; on iOS, JS
+  // runs the SOS itself.
+  const sendSosNow = useCallback(async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
     setCountdownVisible(false);
+    setCountdown(15);
     reset();
     stopNativeVibration().catch(() => {});
+    if (isNativeCrashServiceAvailable) {
+      sendNativeSosNow().catch(() => {});
+      return;
+    }
     resolveCrashLog('sos_sent').catch(() => {});
     const currentLocation = locationRef.current;
     if (!currentLocation) {
@@ -217,6 +238,18 @@ export default function HomeScreen() {
     }
     await triggerSOS(currentLocation, 'auto', servicesRef.current);
   }, [reset, triggerSOS]);
+
+  // The on-screen countdown reached 0. On Android the native service's own
+  // timer fires the SOS — JS only dismisses the overlay. On iOS, JS sends it.
+  const handleCountdownExpire = useCallback(async () => {
+    if (isNativeCrashServiceAvailable) {
+      setCountdownVisible(false);
+      setCountdown(15);
+      reset();
+      return;
+    }
+    await sendSosNow();
+  }, [reset, sendSosNow]);
 
   // Handle crash detection — log to Supabase, vibrate, show countdown or background alert
   useEffect(() => {
@@ -247,7 +280,7 @@ export default function HomeScreen() {
       setCountdown((current) => {
         if (current <= 1) {
           if (timerRef.current) clearInterval(timerRef.current);
-          sendAutoSOS();
+          handleCountdownExpire();
           return 0;
         }
         return current - 1;
@@ -257,7 +290,7 @@ export default function HomeScreen() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [countdownVisible, sendAutoSOS]);
+  }, [countdownVisible, handleCountdownExpire]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -272,7 +305,13 @@ export default function HomeScreen() {
     setCountdown(15);
     reset();
     stopNativeVibration().catch(() => {});
-    resolveCrashLog('cancelled').catch(() => {});
+    if (isNativeCrashServiceAvailable) {
+      // Actually stop the native service's countdown — without this the
+      // service still auto-sends the SOS ~15s after impact.
+      cancelNativeCountdown().catch(() => {});
+    } else {
+      resolveCrashLog('cancelled').catch(() => {});
+    }
   }
 
   function confirmManualSOS() {
@@ -315,11 +354,15 @@ export default function HomeScreen() {
 
   const detectionOn = profile?.crashDetectionEnabled ?? false;
   const crashTone: Tone = detectionOn ? (isDrive ? 'amber' : 'green') : 'neutral';
-  const crashStat = detectionOn
-    ? isDrive
-      ? `${gForce.toFixed(1)}g · jerk ${jerkGs.toFixed(0)} g/s`
-      : 'Idle · no anomalies'
-    : 'Enable in Settings for automatic SOS';
+  const crashStat = !detectionOn
+    ? 'Enable in Settings for automatic SOS'
+    : isNativeCrashServiceAvailable
+      ? isDrive
+        ? 'Monitoring impacts in the background'
+        : 'Monitoring · no anomalies'
+      : isDrive
+        ? `${gForce.toFixed(1)}g · jerk ${jerkGs.toFixed(0)} g/s`
+        : 'Idle · no anomalies';
 
   const nearest = services.slice(0, 3);
 
@@ -385,7 +428,15 @@ export default function HomeScreen() {
             <StatusPill label={detectionOn ? (isDrive ? 'Drive' : 'Normal') : 'Off'} tone={crashTone} />
           </View>
           {profile?.devMode ? (
-            <PrimaryButton label="Simulate crash" tone="amber" Icon={Activity} onPress={() => setCountdownVisible(true)} />
+            <PrimaryButton
+              label="Simulate crash"
+              tone="amber"
+              Icon={Activity}
+              onPress={() => {
+                if (isNativeCrashServiceAvailable) simulateNativeCrash().catch(() => {});
+                else setCountdownVisible(true);
+              }}
+            />
           ) : null}
         </Panel>
 
@@ -458,7 +509,7 @@ export default function HomeScreen() {
         </Panel>
       </ScrollView>
 
-      <CountdownOverlay visible={countdownVisible} countdown={countdown} onCancel={cancelCountdown} onSendNow={sendAutoSOS} />
+      <CountdownOverlay visible={countdownVisible} countdown={countdown} onCancel={cancelCountdown} onSendNow={sendSosNow} />
     </Screen>
   );
 }

@@ -88,6 +88,48 @@ class CrashDetectionModule(reactContext: ReactApplicationContext)
         }
     }
 
+    /** Stop the running countdown so the auto-SOS does NOT fire. */
+    @ReactMethod
+    fun cancelCountdown(promise: Promise) {
+        try {
+            val intent = Intent(reactApplicationContext, CrashDetectionService::class.java).apply {
+                action = CrashDetectionService.ACTION_CANCEL_COUNTDOWN
+            }
+            reactApplicationContext.startService(intent)
+            promise.resolve(true)
+        } catch (e: Throwable) {
+            promise.reject("ERR_CANCEL", e.message ?: "cancel failed", e)
+        }
+    }
+
+    /** Skip the remaining countdown and fire the SOS immediately. */
+    @ReactMethod
+    fun sendSosNow(promise: Promise) {
+        try {
+            val intent = Intent(reactApplicationContext, CrashDetectionService::class.java).apply {
+                action = CrashDetectionService.ACTION_SEND_NOW
+            }
+            reactApplicationContext.startService(intent)
+            promise.resolve(true)
+        } catch (e: Throwable) {
+            promise.reject("ERR_SENDNOW", e.message ?: "send-now failed", e)
+        }
+    }
+
+    /** Dev/testing only — trigger the full crash flow without a real impact. */
+    @ReactMethod
+    fun simulateCrash(promise: Promise) {
+        try {
+            val intent = Intent(reactApplicationContext, CrashDetectionService::class.java).apply {
+                action = CrashDetectionService.ACTION_SIMULATE
+            }
+            reactApplicationContext.startService(intent)
+            promise.resolve(true)
+        } catch (e: Throwable) {
+            promise.reject("ERR_SIMULATE", e.message ?: "simulate failed", e)
+        }
+    }
+
     @ReactMethod
     fun storeLocation(lat: Double, lng: Double, address: String, promise: Promise) {
         try {
